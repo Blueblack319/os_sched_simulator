@@ -26,10 +26,10 @@ void system_call_memory_release(int &cycle, Process *&process_running, deque<Pro
 void replacement(int &cycle, Process *&process_running, deque<Process *> &process_ready, vector<Process *> &process_waiting, array<FrameInfo, 16> &physicalMemory, int pageID, FaultType type, Replacement replacement_algo);
 
 // replacement algorithms
-void evict_page_fifo_lru_lfu(Process *&process_running, array<FrameInfo, 16> &physicalMemory);
+void evict_page_fifo_lru_lfu(Process *&process_running, deque<Process *> &process_ready, vector<Process *> &process_waiting, array<FrameInfo, 16> &physicalMemory);
 // void evict_page_lru(Process *&process_running, array<FrameInfo, 16> &physicalMemory);
 // void evict_page_lfu(Process *&process_running, array<FrameInfo, 16> &physicalMemory);
-void evict_page_mfu(Process *&process_running, array<FrameInfo, 16> &physicalMemory);
+void evict_page_mfu(Process *&process_running, deque<Process *> &process_ready, vector<Process *> &process_waiting, array<FrameInfo, 16> &physicalMemory);
 void mapping(Process *&process_running, array<FrameInfo, 16> &physicalMemory, int pageID);
 
 void updateCounter(const int cycle, Process *&process_running, array<FrameInfo, 16> &physicalMemory, int pageID, Replacement replacement_algo);

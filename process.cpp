@@ -57,6 +57,29 @@ void print_status(Status status)
             }
         }
         resultFile << "\n";
+        // TODO: DEBUGGING
+        // Reference count
+        // resultFile << "|";
+        // for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
+        // {
+        //     if (status.physicalMemory[i].isExist)
+        //     {
+        //         resultFile << to_string(status.physicalMemory[i].pid) + "(" + to_string(status.physicalMemory[i].ref_count) + ")";
+        //     }
+        //     else
+        //     {
+        //         resultFile << "-";
+        //     }
+        //     if (i % 4 == 3)
+        //     {
+        //         resultFile << "|";
+        //     }
+        //     else
+        //     {
+        //         resultFile << " ";
+        //     }
+        // }
+        // resultFile << "\n";
 
         // 5. Virtual memory info of a process
         if (status.process_running != NULL)
@@ -113,7 +136,7 @@ void print_status(Status status)
             resultFile << "|";
             for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
             {
-                if (status.process_running->pageTable[i].is_valid)
+                if (status.process_running->virtualMemory[i].isExist)
                 {
                     if (status.process_running->pageTable[i].protection == READ)
                     {
@@ -137,6 +160,127 @@ void print_status(Status status)
                     resultFile << " ";
                 }
             }
+            resultFile << "\n";
+        }
+
+        // TODO: DEBUGGING
+        // 7. 부모의 page tabel
+        if (status.process_ready.size() != 0 || status.process_waiting.size() != 0)
+        {
+
+            for (const auto process : status.process_ready)
+            {
+                if (process->pid == 1)
+                {
+                    resultFile << "7. page table of init:\n";
+                    resultFile << "|";
+                    for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
+                    {
+                        if (process->pageTable[i].is_valid)
+                        {
+                            resultFile << process->pageTable[i].frameID;
+                        }
+                        else
+                        {
+                            resultFile << "-";
+                        }
+                        if (i % 4 == 3)
+                        {
+                            resultFile << "|";
+                        }
+                        else
+                        {
+                            resultFile << " ";
+                        }
+                    }
+                    resultFile << "\n";
+                    resultFile << "|";
+                    for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
+                    {
+                        if (process->virtualMemory[i].isExist)
+                        {
+                            if (process->pageTable[i].protection == READ)
+                            {
+                                resultFile << "R";
+                            }
+                            else
+                            {
+                                resultFile << "W";
+                            }
+                        }
+                        else
+                        {
+                            resultFile << "-";
+                        }
+                        if (i % 4 == 3)
+                        {
+                            resultFile << "|";
+                        }
+                        else
+                        {
+                            resultFile << " ";
+                        }
+                    }
+                    break;
+                }
+            }
+            for (const auto process : status.process_waiting)
+            {
+                if (process->pid == 1)
+                {
+                    resultFile << "7. page table of init:\n";
+                    resultFile << "|";
+                    for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
+                    {
+                        if (process->pageTable[i].is_valid)
+                        {
+                            resultFile << process->pageTable[i].frameID;
+                        }
+                        else
+                        {
+                            resultFile << "-";
+                        }
+                        if (i % 4 == 3)
+                        {
+                            resultFile << "|";
+                        }
+                        else
+                        {
+                            resultFile << " ";
+                        }
+                    }
+                    resultFile << "\n";
+                    resultFile << "|";
+                    for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
+                    {
+                        if (process->virtualMemory[i].isExist)
+                        {
+                            if (process->pageTable[i].protection == READ)
+                            {
+                                resultFile << "R";
+                            }
+                            else
+                            {
+                                resultFile << "W";
+                            }
+                        }
+                        else
+                        {
+                            resultFile << "-";
+                        }
+                        if (i % 4 == 3)
+                        {
+                            resultFile << "|";
+                        }
+                        else
+                        {
+                            resultFile << " ";
+                        }
+                    }
+                    break;
+                }
+            }
+
             resultFile << "\n";
         }
 
