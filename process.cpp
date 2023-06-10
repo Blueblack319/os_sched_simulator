@@ -59,27 +59,28 @@ void print_status(Status status)
         resultFile << "\n";
         // TODO: DEBUGGING
         // Reference count
-        // resultFile << "|";
-        // for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
-        // {
-        //     if (status.physicalMemory[i].isExist)
-        //     {
-        //         resultFile << to_string(status.physicalMemory[i].pid) + "(" + to_string(status.physicalMemory[i].ref_count) + ")";
-        //     }
-        //     else
-        //     {
-        //         resultFile << "-";
-        //     }
-        //     if (i % 4 == 3)
-        //     {
-        //         resultFile << "|";
-        //     }
-        //     else
-        //     {
-        //         resultFile << " ";
-        //     }
-        // }
-        // resultFile << "\n";
+        resultFile << "4-1. pid(ref_count):\n";
+        resultFile << "|";
+        for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
+        {
+            if (status.physicalMemory[i].isExist)
+            {
+                resultFile << to_string(status.physicalMemory[i].pid) + "(" + to_string(status.physicalMemory[i].ref_count) + ")";
+            }
+            else
+            {
+                resultFile << "-";
+            }
+            if (i % 4 == 3)
+            {
+                resultFile << "|";
+            }
+            else
+            {
+                resultFile << " ";
+            }
+        }
+        resultFile << "\n";
 
         // 5. Virtual memory info of a process
         if (status.process_running != NULL)
@@ -283,59 +284,6 @@ void print_status(Status status)
 
             resultFile << "\n";
         }
-
-        // // 4. 현재 ready 상태인 프로세스의 정보. 왼쪽에 있을 수록 먼저 queue에 들어온 프로세스이다.
-        // if (status.process_ready.size() == 0)
-        // {
-        //     // printf("### ready: none\n");
-        //     resultFile << "### ready: none\n";
-        // }
-        // else
-        // {
-        //     resultFile << "### ready:";
-        //     for (int i = 0; i < status.process_ready.size(); ++i)
-        //     { // 공백 한칸으로 구분
-        //         resultFile << " " << status.process_ready[i]->pid;
-        //     }
-        //     resultFile << "\n";
-        // }
-
-        // // 5. 현재 waiting 상태인 프로세스의 정보. 왼쪽에 있을 수록 먼저 waiting이 된 프로세스이다.
-        // if (status.process_waiting.size() == 0)
-        // {
-        //     resultFile << "### waiting: none\n";
-        // }
-        // else
-        // {
-        //     resultFile << "### waiting:";
-        //     for (int i = 0; i < status.process_waiting.size(); ++i)
-        //     { // 공백 한칸으로 구분
-        //         resultFile << " " << status.process_waiting[i]->pid << "(" << status.process_waiting[i]->waiting_type << ")";
-        //     }
-        //     resultFile << "\n";
-        // }
-
-        // // 6. New 상태의 프로세스
-        // if (status.process_new == NULL)
-        // {
-        //     resultFile << "### new: none\n";
-        // }
-        // else
-        // {
-        //     Process *i = status.process_new;
-        //     resultFile << "### new: " << i->pid << "(" << i->name.c_str() << ", " << i->ppid << ")\n";
-        // }
-
-        // // 7. Terminated 상태의 프로세스
-        // if (status.process_terminated == NULL)
-        // {
-        //     resultFile << "### terminated: none\n";
-        // }
-        // else
-        // {
-        //     Process *i = status.process_terminated;
-        //     resultFile << "### terminated: " << i->pid << "(" << i->name.c_str() << ", " << i->ppid << ")\n";
-        // }
 
         // 매 cycle 간의 정보는 두번의 개행으로 구분
         resultFile << "\n";

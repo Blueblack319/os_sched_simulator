@@ -35,11 +35,13 @@ void memory_read(int &cycle, Process *&process_running, deque<Process *> &proces
     // (4) 명령어 실행
     // pageID가 동일하고 is_valid == true인지
     bool isFault = true;
+    Protection protection;
     for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
     {
         if (process_running->pageTable[i].pageID == pageID && process_running->pageTable[i].is_valid == true)
         {
             isFault = false;
+            protection = process_running->pageTable[i].protection;
             break;
         }
     }
@@ -62,7 +64,7 @@ void memory_read(int &cycle, Process *&process_running, deque<Process *> &proces
         fault(cycle, process_running, process_ready, process_waiting, physicalMemory, pageID, PAGE_FAULT, replacement_algo);
     else
         // (6) 명령어 처리가 끝난 다음 cycle부터 reference count 1 증가
-        updateCounter(cycle, process_running, physicalMemory, pageID, replacement_algo);
+        updateCounter(cycle, process_running, physicalMemory, pageID, replacement_algo, protection);
 }
 
 void memory_write(int &cycle, Process *&process_running, deque<Process *> &process_ready, vector<Process *> &process_waiting, array<FrameInfo, 16> &physicalMemory, int pageID, Replacement replacement_algo)
@@ -111,7 +113,7 @@ void memory_write(int &cycle, Process *&process_running, deque<Process *> &proce
     else
         // fault 처리 cycle 끝나고 reference count 1 증가
         // (6) 명령어 처리가 끝난 다음 cycle부터 reference count 1 증가
-        updateCounter(cycle, process_running, physicalMemory, pageID, replacement_algo);
+        updateCounter(cycle, process_running, physicalMemory, pageID, replacement_algo, WRITE);
 }
 
 void fork_and_exec(int &cycle, Process *&process_running, deque<Process *> &process_ready, vector<Process *> &process_waiting, array<FrameInfo, 16> &physicalMemory, string command, string path_programs, string program_name, int &last_pid)

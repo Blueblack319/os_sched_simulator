@@ -4,23 +4,6 @@ void boot(int &cycle, Process *&process_running, deque<Process *> &process_ready
 {
     // (1),(2),(3) skip, 처음 동작하는 명령어임으로 할 필요 없음
     // (4) 명령어 실행
-    //     struct Process
-    // {
-    //     string name;       // 프로세스 이름
-    //     int pid;           // 프로세스 ID
-    //     int ppid;          // 부모 프로세스 ID
-    //     char waiting_type; // waiting일 때 S, W중 하나
-    //     int remaining_cycle;
-    //     deque<string> code;
-    //     State state;
-
-    //     // For memory
-    //     int currentPageID;
-    //     int currentAllocationID;
-    //     // TODO: pageID가 31을 넘기는 경우는? 0부터 다시 할당 => 잊지말고 구현해
-    //     array<PageInfo, 32> virtualMemory;
-    //     array<PageTableEntry, 32> pageTable;
-    // };
     array<PageInfo, 32> virtualMemory;
     array<PageTableEntry, 32> pageTable;
     for (auto &page : virtualMemory)
@@ -188,48 +171,16 @@ void fault(int &cycle, Process *&process_running, deque<Process *> &process_read
         1) Replacement algorithm에 따라 physical memory에 frame 1개 확보
         2) 해당 자식 process의 page만 pageID physical memory에 할당
     */
+    Protection protectionMapped;
     if (type == PAGE_FAULT)
     {
         // 빈 frame이 없는 경우
         // replacement algorithm에 따라 frame 확보
         int numFreed = checkFreeFrames(physicalMemory);
         if (numFreed == 0)
-        {
-            switch (replacement_algo)
-            {
-            case FIFO:
-            case LRU:
-            case LFU:
-                evict_page_fifo_lru_lfu(process_running, process_ready, process_waiting, physicalMemory);
-                break;
-            case MFU:
-                evict_page_mfu(process_running, process_ready, process_waiting, physicalMemory);
-                break;
-            }
-        }
+            evict_page(process_running, process_ready, process_waiting, physicalMemory, replacement_algo);
         // 빈 frame이 있는 경우
-        // TODO: pageID가 없는 경우도 해결해야 하나?
-        mapping(process_running, physicalMemory, pageID);
-        // int frameID = 0;
-        // for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
-        //     if (physicalMemory[i].isExist == false)
-        //     {
-        //         // Update physicalMemory
-        //         physicalMemory[i].pid = process_running->pid;
-        //         physicalMemory[i].pageID = pageID;
-        //         physicalMemory[i].isExist = true;
-        //         frameID = i;
-        //         break;
-        //     }
-
-        // // Update pageTable
-        // for (auto &entry : process_running->pageTable)
-        //     if (entry.pageID == pageID)
-        //     {
-        //         entry.is_valid = true;
-        //         entry.frameID = frameID;
-        //         entry.protection = WRITE;
-        //     }
+        protectionMapped = mapping(process_running, physicalMemory, pageID);
     }
     // PROTECTION_FAULT
     /*
@@ -238,6 +189,7 @@ void fault(int &cycle, Process *&process_running, deque<Process *> &process_read
     */
     else
     {
+        protectionMapped = WRITE;
         /*
         부모인 경우 <=> init인 경우 => ppid == 0
         Protection fault가 발생하여 커널 모드로 전환되고, fault handler에 의해
@@ -319,23 +271,12 @@ void fault(int &cycle, Process *&process_running, deque<Process *> &process_read
             // 여기서 부모의 frame을 뺏어야 해
             int numFreed = checkFreeFrames(physicalMemory);
             if (numFreed == 0)
-            {
-                switch (replacement_algo)
-                {
-                case FIFO:
-                case LRU:
-                case LFU:
-                    evict_page_fifo_lru_lfu(process_running, process_ready, process_waiting, physicalMemory);
-                    break;
-                case MFU:
-                    evict_page_mfu(process_running, process_ready, process_waiting, physicalMemory);
-                    break;
-                }
-            }
+                evict_page(process_running, process_ready, process_waiting, physicalMemory, replacement_algo);
+
             numFreed = checkFreeFrames(physicalMemory);
             assert(numFreed > 0);
 
-            mapping(process_running, physicalMemory, pageID);
+            Protection protectionMapped = mapping(process_running, physicalMemory, pageID);
             numFreed = checkFreeFrames(physicalMemory);
             assert(numFreed == 0);
 
@@ -416,7 +357,7 @@ void fault(int &cycle, Process *&process_running, deque<Process *> &process_read
         physicalMemory};
     print_status(current);
     cycle++;
-    updateCounter(cycle, process_ready.back(), physicalMemory, pageID, replacement_algo);
+    updateCounter(cycle, process_ready.back(), physicalMemory, pageID, replacement_algo, protectionMapped);
     schedule(cycle, process_running, process_ready, process_waiting, physicalMemory);
 }
 
@@ -621,17 +562,8 @@ void system_call_memory_allocate(int &cycle, Process *&process_running, deque<Pr
     {
         int required = allocated_size - numFreed;
         for (int i = 0; i < required; i++)
-            switch (replacement_algo)
-            {
-            case FIFO:
-            case LRU:
-            case LFU:
-                evict_page_fifo_lru_lfu(process_running, process_ready, process_waiting, physicalMemory);
-                break;
-            case MFU:
-                evict_page_mfu(process_running, process_ready, process_waiting, physicalMemory);
-                break;
-            }
+            evict_page(process_running, process_ready, process_waiting, physicalMemory, replacement_algo);
+
         // TODO: DEBUGGING
         int check = 0;
         for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
@@ -696,25 +628,7 @@ void system_call_memory_allocate(int &cycle, Process *&process_running, deque<Pr
             }
         }
     }
-    // for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
-    // {
-    //     if (s <= 0)
-    //         break;
-    //     // 빈 프레임인 경우
-    //     if (!physicalMemory[i].isExist)
-    //     {
-    //         physicalMemory[i].pageID = process_running->currentPageID + pageIDIdx;
-    //         physicalMemory[i].pid = process_running->pid;
-    //         physicalMemory[i].isExist = true;
-    //         physicalMemory[i].ref_count = 0;
-    //         process_running->pageTable[startIdx + pageIDIdx].frameID = i;
-    //         process_running->pageTable[startIdx + pageIDIdx].pageID = process_running->currentPageID + pageIDIdx;
-    //         process_running->pageTable[startIdx + pageIDIdx].is_valid = true;
-    //         process_running->pageTable[startIdx + pageIDIdx].protection = WRITE;
-    //         s--;
-    //         pageIDIdx++;
-    //     }
-    // }
+
     assert(pageIDIdx == allocated_size);
     assert(s == allocated_size);
     // currentAllocationID & currentPageID 업데이트
@@ -744,7 +658,7 @@ void system_call_memory_allocate(int &cycle, Process *&process_running, deque<Pr
     // (6) 명령어 처리가 끝난 다음 cycle부터 reference count 1 증가
     for (int i = 0; i < allocated_size; i++)
     {
-        updateCounter(cycle, process_ready.back(), physicalMemory, startID + i, replacement_algo);
+        updateCounter(cycle, process_ready.back(), physicalMemory, startID + i, replacement_algo, WRITE);
     }
 }
 
@@ -911,45 +825,6 @@ void system_call_memory_release(int &cycle, Process *&process_running, deque<Pro
         }
     }
 
-    // vector<int> pagesFreed;
-    // for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
-    // {
-    //     if (process_running->virtualMemory[i].isExist && process_running->virtualMemory[i].allocationID == allocationID)
-    //     {
-    //         pagesFreed.push_back(i);
-    //         process_running->virtualMemory[i].allocationID = -1;
-    //         process_running->virtualMemory[i].pageID = -1;
-    //         process_running->virtualMemory[i].isExist = false;
-    //     }
-    // }
-
-    // // pageTable을 이용해서 physicalMemory update
-    // int checkCnt = 0;
-    // for (const auto freed : pagesFreed)
-    // {
-    //     for (auto &entry : process_running->pageTable)
-    //     {
-    //         if (entry.is_valid == true && entry.pageID == freed)
-    //         {
-    //             physicalMemory[entry.frameID].isExist = false;
-    //             physicalMemory[entry.frameID].pageID = -1;
-    //             physicalMemory[entry.frameID].pid = -1;
-    //             physicalMemory[entry.frameID].ref_count = -1;
-    //             entry.is_valid = false;
-    //             entry.frameID = -1;
-    //             entry.pageID = -1;
-    //             entry.protection = WRITE;
-    //             checkCnt++;
-    //             break;
-    //         }
-    //     }
-    // }
-    // // TODO: DEBUGGING
-
-    // cout << "checkCnt: " << checkCnt << endl;
-    // cout << "pagesFreed: " << pagesFreed.size() << endl;
-    // assert(pagesFreed.size() == checkCnt);
-
     // running -> ready
     // 부모 프로세스 역시 scheduling의 대상이므로 process_ready의 맨 뒤에 삽입한다.
     process_running->state = READY;
@@ -975,23 +850,42 @@ void system_call_memory_release(int &cycle, Process *&process_running, deque<Pro
 한 개의 frame만 확보하는 algorithm
 */
 //
-void evict_page_fifo_lru_lfu(Process *&process_running, deque<Process *> &process_ready, vector<Process *> &process_waiting, array<FrameInfo, 16> &physicalMemory)
+void evict_page(Process *&process_running, deque<Process *> &process_ready, vector<Process *> &process_waiting, array<FrameInfo, 16> &physicalMemory, Replacement replacement_algo)
 {
     // 1. Find frame that has minimum ref_count
     // 2. evit page from the frame
     // 3. Update page table => R 권한 이라면 부모의 page table 역시 update!
-    int min_ref = INT_MAX;
+    int ref = -1;
+    if (replacement_algo == MFU)
+    {
+        ref = INT_MIN;
+        for (auto &frame : physicalMemory)
+            if (frame.isExist)
+            {
+                ref = ref < frame.ref_count ? frame.ref_count : ref;
+            }
+    }
+    // FIFO, LRU, LFU
+    else
+    {
+        ref = INT_MAX;
+        for (auto &frame : physicalMemory)
+            if (frame.isExist)
+            {
+                ref = ref > frame.ref_count ? frame.ref_count : ref;
+            }
+    }
 
-    for (auto &frame : physicalMemory)
-        if (frame.isExist)
-        {
-            min_ref = min_ref > frame.ref_count ? frame.ref_count : min_ref;
-        }
-    assert(min_ref > 0);
+    // for (auto &frame : physicalMemory)
+    //     if (frame.isExist)
+    //     {
+    //         min_ref = min_ref > frame.ref_count ? frame.ref_count : min_ref;
+    //     }
+    assert(ref > 0);
 
     for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
     {
-        if (physicalMemory[i].isExist && physicalMemory[i].ref_count == min_ref)
+        if (physicalMemory[i].isExist && physicalMemory[i].ref_count == ref)
         {
             /*
             W 권한인 경우에 주인 process의 page table 하나만 update
@@ -1218,110 +1112,20 @@ void evict_page_fifo_lru_lfu(Process *&process_running, deque<Process *> &proces
         }
     }
 }
-void evict_page_mfu(Process *&process_running, deque<Process *> &process_ready, vector<Process *> &process_waiting, array<FrameInfo, 16> &physicalMemory)
-{
-    // 1. Find frame that has max ref_count
-    // 2. evit page from the frame
-    int max_ref = INT_MIN;
-    for (auto &frame : physicalMemory)
-        if (frame.isExist)
-            max_ref = max_ref < frame.ref_count ? frame.ref_count : max_ref;
-    assert(max_ref > 0);
-
-    for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
-    {
-        if (physicalMemory[i].isExist && physicalMemory[i].ref_count == max_ref)
-        {
-            // Update pageTable
-            for (auto &entry : process_running->pageTable)
-            {
-                if (entry.is_valid && entry.frameID == i)
-                {
-                    // virtual memory에 page는 할당되어 있지만 physical memory에 frame은 할당되어 있지 않을 수도 있다
-                    // entry.is_valid == false && frame.isExist == false && page.isExist == true
-                    entry.is_valid = false;
-                    entry.frameID = -1;
-                    break;
-                }
-                // R 권한이라면 부모의 page table 역시 update
-                if (entry.protection == READ)
-                {
-                    for (auto &process : process_ready)
-                    {
-                        if (process->pid == process_running->ppid)
-                        {
-                            for (auto &parent_entry : process->pageTable)
-                            {
-                                if (parent_entry.is_valid && parent_entry.frameID == i)
-                                {
-                                    parent_entry.is_valid = false;
-                                    parent_entry.frameID = -1;
-                                    break;
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-            // Update physical memory
-            physicalMemory[i].isExist = false;
-            physicalMemory[i].pageID = -1;
-            physicalMemory[i].pid = -1;
-            physicalMemory[i].ref_count = -1;
-            break;
-        }
-    }
-}
-// void evict_page_lru(Process *&process_running, array<FrameInfo, 16> &physicalMemory)
-// {
-//     // 1. Find frame that has minimum ref_count
-//     // 2. evit page from the frame
-//     int min_ref = INT_MAX;
-//     for (auto &frame : physicalMemory)
-//         if (frame.isExist)
-//             min_ref = min_ref > frame.ref_count ? frame.ref_count : min_ref;
-
-//     for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
-//     {
-//         if (physicalMemory[i].isExist && physicalMemory[i].ref_count == min_ref)
-//         {
-//             // Update pageTable
-//             for (auto &entry : process_running->pageTable)
-//             {
-//                 if (entry.is_valid && entry.frameID == i)
-//                 {
-//                     // virtual memory에 page는 할당되어 있지만 physical memory에 frame은 할당되어 있지 않을 수도 있다
-//                     // entry.is_valid == false && frame.isExist == false && page.isExist == true
-//                     entry.is_valid = false;
-//                     entry.frameID = -1;
-//                     break;
-//                 }
-//             }
-//             // Update physical memory
-//             physicalMemory[i].isExist = false;
-//             physicalMemory[i].pageID = -1;
-//             physicalMemory[i].pid = -1;
-//             physicalMemory[i].ref_count = -1;
-//             break;
-//         }
-//     }
-// }
-// void evict_page_lfu(Process *&process_running, array<FrameInfo, 16> &physicalMemory) {}
 
 /*
 확보된 빈 frame에 page mapping
 @pageID: mapping 하고자 하는 page의 pageID
 */
-void mapping(Process *&process_running, array<FrameInfo, 16> &physicalMemory, int pageID)
+Protection mapping(Process *&process_running, array<FrameInfo, 16> &physicalMemory, int pageID)
 {
     // if (frame.isExist == true && frame.pageID == pageID && frameMapped.pid == process_running->pid)
     bool working = false;
+    Protection protection = WRITE;
     for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
         if (physicalMemory[i].isExist == false)
         {
             working = true;
-            Protection protection = WRITE;
             // Update pageTable
             for (auto &entry : process_running->pageTable)
                 if (entry.pageID == pageID)
@@ -1341,6 +1145,7 @@ void mapping(Process *&process_running, array<FrameInfo, 16> &physicalMemory, in
         }
     // TODO: DEBUGGING
     assert(working == true);
+    return protection;
 }
 /*
 페이지 교체 알고리즘의 ‘참조’ 시점은 memory_allocate, memory_read, 그리고
@@ -1351,14 +1156,21 @@ reference count가 1 증가한다. 페이지 교체 알고리즘 등으로 인�
 메모리에서 해제되면 reference count가 초기화된다.
 명령어 처리가 끝난 다음 cycle부터 reference count가 1 증가
 pageID 해당하는 frame 1개만 update
+어떤 경우에 R을 업데이트 해야 하고 어떤 경우에 W를 업데이트 해야 하지?
+
+
+R인 경우
+frame.pid == process_running->ppid
+W인 경우
+frame.pid == process_running->pid
 */
-void updateCounter(const int cycle, Process *&process_running, array<FrameInfo, 16> &physicalMemory, int pageID, Replacement replacement_algo)
+void updateCounter(const int cycle, Process *&process_running, array<FrameInfo, 16> &physicalMemory, int pageID, Replacement replacement_algo, Protection prot)
 {
     if (replacement_algo == LFU || replacement_algo == MFU)
         for (auto &frame : physicalMemory)
         {
             // TODO: frame.pid가 ppid인 경우 고려! 즉, R 권한인 경우도 고려
-            if (frame.isExist && frame.pageID == pageID && (frame.pid == process_running->pid || frame.pid == process_running->ppid))
+            if (frame.isExist && frame.pageID == pageID && frame.pid == (prot == WRITE ? process_running->pid : process_running->ppid))
             {
                 frame.ref_count += 1;
                 break;
@@ -1368,7 +1180,7 @@ void updateCounter(const int cycle, Process *&process_running, array<FrameInfo, 
         for (auto &frame : physicalMemory)
         {
             // TODO: frame.pid가 ppid인 경우 고려! 즉, R 권한인 경우도 고려
-            if (frame.isExist && frame.pageID == pageID && (frame.pid == process_running->pid || frame.pid == process_running->ppid))
+            if (frame.isExist && frame.pageID == pageID && frame.pid == (prot == WRITE ? process_running->pid : process_running->ppid))
             {
                 frame.ref_count = cycle;
                 break;
@@ -1378,7 +1190,7 @@ void updateCounter(const int cycle, Process *&process_running, array<FrameInfo, 
         for (auto &frame : physicalMemory)
         {
             // TODO: frame.pid가 ppid인 경우 고려! 즉, R 권한인 경우도 고려
-            if (frame.isExist && frame.pageID == pageID && (frame.pid == process_running->pid || frame.pid == process_running->ppid) && frame.ref_count <= 0)
+            if (frame.isExist && frame.pageID == pageID && frame.pid == (prot == WRITE ? process_running->pid : process_running->ppid) && frame.ref_count <= 0)
             {
                 frame.ref_count = cycle;
                 break;
