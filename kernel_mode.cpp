@@ -191,28 +191,29 @@ void fault(int &cycle, Process *&process_running, deque<Process *> &process_read
     {
         protectionMapped = WRITE;
         /*
-        부모인 경우 <=> init인 경우 => ppid == 0
+        부모(init)인 경우인 경우 => pid == 1
         Protection fault가 발생하여 커널 모드로 전환되고, fault handler에 의해
         부모와 자식 프로세스 모두에서 해당 페이지가 ‘W 권한’으로 변경된다. 부모 프로세스는 새로운
         프레임을 생성하지는 않고, 기존의 프레임을 그대로 활용한다. 이 과정에서 자식 프로세스들의
         새로운 물리 프레임 할당까지 이어지지는 않는다.
         */
-        if (process_running->ppid == 0)
+        if (process_running->pid == 1)
         {
+            // 부모 자신의 권한 변경
             for (auto &entry : process_running->pageTable)
                 if (entry.pageID == pageID)
                 {
                     entry.protection = WRITE;
                     break;
                 }
-            // 자식 프로세스로 접근은 어떻게? => readyQ에서 찾기
-            // 1. 자식 프로세스의 readyQ index 찾기
-            // 2. 부모, 자식 모두 W 권한으로 변경, 부모는 나머지 FrameInfo, PageInfo, PageTableEntry 그대로 유지
-            // 3. 자식은 pageTableEntry의 is_valid = false
-            // TODO: 나중에 자식이 memory_read or memory_write 하면 page fault가 떠야 함
+            /*
+            자식들의 권한 변경
+            부모가 process_running 이었음으로 readyQ에 있는 processes는 모두 자식 processes
+            나중에 자식이 memory_read or memory_write 하면 page fault가 떠야 함
+            자식 프로세스로 접근은 어떻게? => readyQ에서 찾기
+            */
             for (auto &process : process_ready)
                 for (auto &entry : process->pageTable)
-                    // pageID는 동일하지만 protection이 WRITE인 경우는 이미 독립적인 page!
                     if (entry.pageID == pageID && entry.protection == READ)
                     {
                         entry.protection = WRITE;
@@ -265,10 +266,21 @@ void fault(int &cycle, Process *&process_running, deque<Process *> &process_read
                     entry.is_valid = false;
                     break;
                 }
+            // 다른 자식들 권한 변경: readyQ에 무조건 존재
+            for (auto &process : process_ready)
+                if (process->ppid == 1)
+                    for (auto &entry : process->pageTable)
+                        if (entry.pageID == pageID && entry.protection == READ)
+                        {
+                            entry.protection = WRITE;
+                            entry.is_valid = false;
+                            break;
+                        }
 
             // 자식 프로세스에 새로운 프레임이 생성되고 물리 메모리에 할당
             // 빈 frame 확보
             // 여기서 부모의 frame을 뺏어야 해
+            // 빈 frame이 있다면 뺏지마
             int numFreed = checkFreeFrames(physicalMemory);
             if (numFreed == 0)
                 evict_page(process_running, process_ready, process_waiting, physicalMemory, replacement_algo);
@@ -276,9 +288,7 @@ void fault(int &cycle, Process *&process_running, deque<Process *> &process_read
             numFreed = checkFreeFrames(physicalMemory);
             assert(numFreed > 0);
 
-            Protection protectionMapped = mapping(process_running, physicalMemory, pageID);
-            numFreed = checkFreeFrames(physicalMemory);
-            assert(numFreed == 0);
+            mapping(process_running, physicalMemory, pageID);
 
             // TODO: ============================DEBUGGING============================
             // 1. pageID에 해당하는 page가 물리 메모리에 frame 확보
@@ -385,7 +395,7 @@ void system_call_exit(int &cycle, Process *&process_running, deque<Process *> &p
         }
     }
     // 해당 프로세스의 memory_release 연산들이 모두 실행
-    // 즉, read 권한만 있는 경우에는 물리 메모리의 해당 프레임을 해제하지는 않는다.
+    // 1. read 권한만 있는 경우에는 물리 메모리의 해당 프레임을 해제하지는 않는다.
     for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
     {
         if (process_terminated->pageTable[i].is_valid == true && process_terminated->pageTable[i].protection != READ)
@@ -396,10 +406,45 @@ void system_call_exit(int &cycle, Process *&process_running, deque<Process *> &p
             physicalMemory[process_terminated->pageTable[i].frameID].ref_count = -1;
         }
     }
+    // 2. 부모 프로세스와 다른 자식 프로세스들의 권한은 모두 W로 바뀜
+    // 다른 자식들: readyQ에 무조건 존재
+    for (auto &process : process_ready)
+        if (process->ppid == 1)
+            for (auto &entry : process->pageTable)
+                for (const auto entry_terminated : process_terminated->pageTable)
+                    if (entry_terminated.pageID == entry.pageID && entry_terminated.protection == READ && entry.protection == READ)
+                    {
+                        entry.is_valid = false;
+                        entry.frameID = -1;
+                        entry.protection = WRITE;
+                        break;
+                    }
 
     // 부모 프로세스: wait -> ready
     if (process_parent)
+    {
         process_ready.push_back(process_parent);
+    }
+    // 부모: readyQ와 waitingQ에 존재
+    // frame에 할당되어 있다면 유지
+    for (auto &process : process_ready)
+        if (process->pid == 1)
+            for (auto &entry : process->pageTable)
+                for (const auto entry_terminated : process_terminated->pageTable)
+                    if (entry_terminated.pageID == entry.pageID && entry_terminated.protection == READ && entry.protection == READ)
+                    {
+                        entry.protection = WRITE;
+                        break;
+                    }
+    for (auto &process : process_waiting)
+        if (process->pid == 1)
+            for (auto &entry : process->pageTable)
+                for (const auto entry_terminated : process_terminated->pageTable)
+                    if (entry_terminated.pageID == entry.pageID && entry_terminated.protection == READ && entry.protection == READ)
+                    {
+                        entry.protection = WRITE;
+                        break;
+                    }
 
     // (5) 해당 cycle 실행 직후 결과 출력
     Status current = {
@@ -681,6 +726,7 @@ void system_call_memory_release(int &cycle, Process *&process_running, deque<Pro
         2) 물리 메모리에 할당되어 있다면 물리 메모리에서도 해제
     2. R 권한인 경우
         (1) 먼저, page X를 각자의 프로세스로 복사하고, 'R' 권한을 'W' 권한으로 변경합니다.
+        TODO: 다른 자식 프로세스도 공유중이라면? 모두 W 권한으로 변경?
 
         (2) 그 다음 page X를 물리 메모리에서 해제합니다.
         (2)를 처리하는 과정에서 process A (부모)와 process B (자식)의 처리 방식이 다를 것 같습니다.
@@ -849,7 +895,6 @@ void system_call_memory_release(int &cycle, Process *&process_running, deque<Pro
 /*
 한 개의 frame만 확보하는 algorithm
 */
-//
 void evict_page(Process *&process_running, deque<Process *> &process_ready, vector<Process *> &process_waiting, array<FrameInfo, 16> &physicalMemory, Replacement replacement_algo)
 {
     // 1. Find frame that has minimum ref_count
@@ -876,11 +921,6 @@ void evict_page(Process *&process_running, deque<Process *> &process_ready, vect
             }
     }
 
-    // for (auto &frame : physicalMemory)
-    //     if (frame.isExist)
-    //     {
-    //         min_ref = min_ref > frame.ref_count ? frame.ref_count : min_ref;
-    //     }
     assert(ref > 0);
 
     for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
@@ -889,23 +929,40 @@ void evict_page(Process *&process_running, deque<Process *> &process_ready, vect
         {
             /*
             W 권한인 경우에 주인 process의 page table 하나만 update
-            R 권한인 경우에  공유중인 모든 process의 page table update
-            1. process_running이 부모인 경우
-            2. process_running이 자식인 경우
-                case1. W 권한인 경우
-                    isEvicted를 이용해서 하나만 update
-                case2. R 권한인 경우
-                    자신과 부모 + 다른 자식들도
-            // TODO: memory_read에서 R 권한인 page를 physical memory에 가져올 때도 공유중인 모든 process의 page table update
+            R 권한인 경우에 공유중인 모든 process의 page table update
+            TODO: memory_read에서 R 권한인 page를 physical memory에 가져올 때도 공유중인 모든 process의 page table update
             Update pageTable 후보
             1. running process
             2. readyQ
             3. waiting
+            evicted page의 주인 process!!!!!! Not process_running
             */
+            // Evicted page의 주인 process 찾기
+            Process *evicted_owner = nullptr;
+            if (process_running->pid == physicalMemory[i].pid)
+                evicted_owner = process_running;
+
+            if (evicted_owner == nullptr)
+            {
+                for (auto &process : process_ready)
+                    if (process->pid == physicalMemory[i].pid)
+                    {
+                        evicted_owner = process;
+                        break;
+                    }
+                for (auto &process : process_waiting)
+                    if (process->pid == physicalMemory[i].pid)
+                    {
+                        evicted_owner = process;
+                        break;
+                    }
+            }
+            assert(evicted_owner != nullptr);
+
             // 권한 찾기
             bool isFound = false;
             Protection protectionEvicted = WRITE;
-            for (const auto entry : process_running->pageTable)
+            for (const auto entry : evicted_owner->pageTable)
                 if (entry.is_valid && entry.frameID == i)
                 {
                     protectionEvicted = entry.protection;
@@ -915,9 +972,9 @@ void evict_page(Process *&process_running, deque<Process *> &process_ready, vect
 
             if (!isFound && process_ready.size() != 0)
                 for (auto &process : process_ready)
-                    if (process->pid == process_running->ppid)
+                    if (process->pid == evicted_owner->ppid)
                     {
-                        for (auto &parent_entry : process->pageTable)
+                        for (const auto &parent_entry : process->pageTable)
                         {
                             if (parent_entry.is_valid && parent_entry.frameID == i)
                             {
@@ -931,7 +988,7 @@ void evict_page(Process *&process_running, deque<Process *> &process_ready, vect
 
             if (!isFound && process_waiting.size() != 0)
                 for (auto &process : process_waiting)
-                    if (process->pid == process_running->ppid)
+                    if (process->pid == evicted_owner->ppid)
                     {
                         for (auto &parent_entry : process->pageTable)
                         {
@@ -946,15 +1003,15 @@ void evict_page(Process *&process_running, deque<Process *> &process_ready, vect
                     }
 
             // R인 경우
-            // process_running이 자식인 경우 부모와 모든 자식의 page table update
-            // process_running이 부모인 경우 부모와 모든 자식의 page table update
+            // 부모와 모든 자식의 page table update
             if (protectionEvicted == READ)
             {
-                // process_running이 부모인 경우
-                // 자기 자신과 자식들, 자식들은 무조건 readyQ에 존재
-                if (process_running->pid == 1)
+                // evictec_owner가 부모인 경우
+                // 자식들은 readyQ 혹은 running process에 존재
+                if (evicted_owner->pid == 1)
                 {
-                    for (auto &entry : process_running->pageTable)
+                    // 부모 자기 자신에 대한 update
+                    for (auto &entry : evicted_owner->pageTable)
                     {
                         if (entry.is_valid && entry.frameID == i)
                         {
@@ -965,37 +1022,57 @@ void evict_page(Process *&process_running, deque<Process *> &process_ready, vect
                             break;
                         }
                     }
+                    // readyQ에 있는 자식들에 대한 update
                     if (process_ready.size() != 0)
                     {
                         for (auto &process : process_ready)
                         {
-                            if (process->ppid == process_running->pid)
+                            if (process->ppid == evicted_owner->pid)
                             {
-                                for (auto &parent_entry : process->pageTable)
+                                for (auto &child_entry : process->pageTable)
                                 {
-                                    if (parent_entry.is_valid && parent_entry.frameID == i)
+                                    if (child_entry.is_valid && child_entry.frameID == i)
                                     {
-                                        parent_entry.is_valid = false;
-                                        parent_entry.frameID = -1;
+                                        child_entry.is_valid = false;
+                                        child_entry.frameID = -1;
                                         break;
                                     }
                                 }
-                                break;
                             }
                         }
                     }
+                    // process_running에 대한 update
+                    for (auto &entry : process_running->pageTable)
+                    {
+                        if (entry.is_valid && entry.frameID == i)
+                        {
+                            entry.is_valid = false;
+                            entry.frameID = -1;
+                            break;
+                        }
+                    }
                 }
-                // process_running이 자식인 경우
+                // evictec_owner가 자식인 경우
                 // 부모와 다른 자식들
                 else
                 {
                     // 자기 자신에 대한 update
-                    for (auto &entry : process_running->pageTable)
+                    for (auto &entry : evicted_owner->pageTable)
                     {
                         if (entry.is_valid && entry.frameID == i)
                         {
                             // virtual memory에 page는 할당되어 있지만 physical memory에 frame은 할당되어 있지 않을 수도 있다
                             // entry.is_valid == false && frame.isExist == false && page.isExist == true
+                            entry.is_valid = false;
+                            entry.frameID = -1;
+                            break;
+                        }
+                    }
+                    // process_running에 대한 update
+                    for (auto &entry : process_running->pageTable)
+                    {
+                        if (entry.is_valid && entry.frameID == i)
+                        {
                             entry.is_valid = false;
                             entry.frameID = -1;
                             break;
@@ -1005,52 +1082,47 @@ void evict_page(Process *&process_running, deque<Process *> &process_ready, vect
                     if (process_ready.size() != 0)
                     {
                         for (auto &process : process_ready)
-                        {
                             // 다른 자식들 혹은 부모인 경우
                             if (process->ppid == 1 || process->pid == 1)
                             {
                                 for (auto &parent_entry : process->pageTable)
-                                {
                                     if (parent_entry.is_valid && parent_entry.frameID == i)
                                     {
                                         parent_entry.is_valid = false;
                                         parent_entry.frameID = -1;
                                         break;
                                     }
-                                }
+
                                 break;
                             }
-                        }
                     }
                     // waitingQ에 있는 부모에 대한 update
                     if (process_waiting.size() != 0)
-                    {
                         for (auto &process : process_waiting)
-                        {
-                            // 다른 자식들 혹은 부모인 경우
                             if (process->pid == 1)
                             {
                                 for (auto &parent_entry : process->pageTable)
-                                {
                                     if (parent_entry.is_valid && parent_entry.frameID == i)
                                     {
                                         parent_entry.is_valid = false;
                                         parent_entry.frameID = -1;
                                         break;
                                     }
-                                }
+
                                 break;
                             }
-                        }
-                    }
                 }
             }
-            // W인 경우
+            //
+            /*
+            W인 경우
+            evicted_owner 혼자만 update
+            */
             else
             {
+                //
                 bool isEvicted = false;
-                for (auto &entry : process_running->pageTable)
-                {
+                for (auto &entry : evicted_owner->pageTable)
                     if (entry.is_valid && entry.frameID == i)
                     {
                         // virtual memory에 page는 할당되어 있지만 physical memory에 frame은 할당되어 있지 않을 수도 있다
@@ -1060,47 +1132,43 @@ void evict_page(Process *&process_running, deque<Process *> &process_ready, vect
                         isEvicted = true;
                         break;
                     }
-                }
-                if (!isEvicted && process_ready.size() != 0)
-                {
-                    for (auto &process : process_ready)
-                    {
-                        if (process->pid == process_running->ppid)
-                        {
-                            for (auto &parent_entry : process->pageTable)
-                            {
-                                if (parent_entry.is_valid && parent_entry.frameID == i)
-                                {
-                                    parent_entry.is_valid = false;
-                                    parent_entry.frameID = -1;
-                                    isEvicted = true;
-                                    break;
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-                if (!isEvicted && process_waiting.size() != 0)
-                {
-                    for (auto &process : process_waiting)
-                    {
-                        if (process->pid == process_running->ppid)
-                        {
-                            for (auto &parent_entry : process->pageTable)
-                            {
-                                if (parent_entry.is_valid && parent_entry.frameID == i)
-                                {
-                                    parent_entry.is_valid = false;
-                                    parent_entry.frameID = -1;
-                                    isEvicted = true;
-                                    break;
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
+                assert(isEvicted == true);
+                // if (!isEvicted && process_ready.size() != 0)
+                //     for (auto &process : process_ready)
+                //         if (process->pid == evicted_owner->ppid)
+                //         {
+                //             for (auto &parent_entry : process->pageTable)
+                //                 if (parent_entry.is_valid && parent_entry.frameID == i)
+                //                 {
+                //                     parent_entry.is_valid = false;
+                //                     parent_entry.frameID = -1;
+                //                     isEvicted = true;
+                //                     break;
+                //                 }
+
+                //             break;
+                //         }
+
+                // if (!isEvicted && process_waiting.size() != 0)
+                // {
+                //     for (auto &process : process_waiting)
+                //     {
+                //         if (process->pid == evicted_owner->ppid)
+                //         {
+                //             for (auto &parent_entry : process->pageTable)
+                //             {
+                //                 if (parent_entry.is_valid && parent_entry.frameID == i)
+                //                 {
+                //                     parent_entry.is_valid = false;
+                //                     parent_entry.frameID = -1;
+                //                     isEvicted = true;
+                //                     break;
+                //                 }
+                //             }
+                //             break;
+                //         }
+                //     }
+                // }
             }
 
             // Update physical memory
@@ -1119,9 +1187,8 @@ void evict_page(Process *&process_running, deque<Process *> &process_ready, vect
 */
 Protection mapping(Process *&process_running, array<FrameInfo, 16> &physicalMemory, int pageID)
 {
-    // if (frame.isExist == true && frame.pageID == pageID && frameMapped.pid == process_running->pid)
     bool working = false;
-    Protection protection = WRITE;
+    Protection new_protection = WRITE;
     for (int i = 0; i < PHYSICAL_MEM_SIZE; i++)
         if (physicalMemory[i].isExist == false)
         {
@@ -1132,20 +1199,20 @@ Protection mapping(Process *&process_running, array<FrameInfo, 16> &physicalMemo
                 {
                     entry.frameID = i;
                     entry.is_valid = true;
-                    protection = entry.protection;
+                    new_protection = entry.protection;
                     break;
                 }
             // Update physical memory
             physicalMemory[i].isExist = true;
             physicalMemory[i].pageID = pageID;
             // entry의 권한에 따라 frame의 pid 결정
-            physicalMemory[i].pid = protection == WRITE ? process_running->pid : process_running->ppid;
+            physicalMemory[i].pid = new_protection == WRITE ? process_running->pid : process_running->ppid;
             physicalMemory[i].ref_count = 0;
             break;
         }
     // TODO: DEBUGGING
     assert(working == true);
-    return protection;
+    return new_protection;
 }
 /*
 페이지 교체 알고리즘의 ‘참조’ 시점은 memory_allocate, memory_read, 그리고
@@ -1169,7 +1236,7 @@ void updateCounter(const int cycle, Process *&process_running, array<FrameInfo, 
     if (replacement_algo == LFU || replacement_algo == MFU)
         for (auto &frame : physicalMemory)
         {
-            // TODO: frame.pid가 ppid인 경우 고려! 즉, R 권한인 경우도 고려
+            // frame.pid가 ppid인 경우 고려! 즉, R 권한인 경우도 고려
             if (frame.isExist && frame.pageID == pageID && frame.pid == (prot == WRITE ? process_running->pid : process_running->ppid))
             {
                 frame.ref_count += 1;
@@ -1179,7 +1246,7 @@ void updateCounter(const int cycle, Process *&process_running, array<FrameInfo, 
     else if (replacement_algo == LRU)
         for (auto &frame : physicalMemory)
         {
-            // TODO: frame.pid가 ppid인 경우 고려! 즉, R 권한인 경우도 고려
+            // frame.pid가 ppid인 경우 고려! 즉, R 권한인 경우도 고려
             if (frame.isExist && frame.pageID == pageID && frame.pid == (prot == WRITE ? process_running->pid : process_running->ppid))
             {
                 frame.ref_count = cycle;
@@ -1189,7 +1256,7 @@ void updateCounter(const int cycle, Process *&process_running, array<FrameInfo, 
     else if (replacement_algo == FIFO)
         for (auto &frame : physicalMemory)
         {
-            // TODO: frame.pid가 ppid인 경우 고려! 즉, R 권한인 경우도 고려
+            // frame.pid가 ppid인 경우 고려! 즉, R 권한인 경우도 고려
             if (frame.isExist && frame.pageID == pageID && frame.pid == (prot == WRITE ? process_running->pid : process_running->ppid) && frame.ref_count <= 0)
             {
                 frame.ref_count = cycle;

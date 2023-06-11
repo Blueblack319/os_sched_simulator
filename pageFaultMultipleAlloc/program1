@@ -1,0 +1,3 @@
+memory_allocate 4
+memory_write 0
+exit

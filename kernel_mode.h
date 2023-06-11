@@ -4,7 +4,7 @@
 #include <array>
 #include <cassert>
 #include <limits.h>
-#include "variables.h"
+#include "d_structs.h"
 #include "process.h"
 #include "utils.h"
 

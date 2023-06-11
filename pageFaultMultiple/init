@@ -1,0 +1,12 @@
+memory_allocate 4
+fork_and_exec program1
+fork_and_exec program2
+fork_and_exec program3
+fork_and_exec program4
+fork_and_exec program5
+wait
+wait
+wait
+wait
+wait
+exit

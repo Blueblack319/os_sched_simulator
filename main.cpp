@@ -2,7 +2,7 @@
 #include "user_mode.h"
 #include "kernel_mode.h"
 #include "utils.h"
-#include "variables.h"
+#include "d_structs.h"
 
 using namespace std;
 
@@ -73,7 +73,6 @@ int main(int argc, char **argv)
         // memory_read, memory_write, memory_allocate
 
         {
-            cout << op << endl;
             // Common instructions(not system calls)
             if (!op.compare("run"))
             {

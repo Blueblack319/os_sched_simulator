@@ -81,14 +81,28 @@ void memory_write(int &cycle, Process *&process_running, deque<Process *> &proce
     FaultType faultType = PAGE_FAULT;
     for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
     {
-        if (process_running->pageTable[i].pageID == pageID && process_running->pageTable[i].is_valid == true)
+        // if (process_running->pageTable[i].pageID == pageID && process_running->pageTable[i].is_valid == true)
+        // {
+        //     if (process_running->pageTable[i].protection == WRITE)
+        //         isFault = false;
+        //     else
+        //         // protection fault가 아닌 경우는 모두 page fault
+        //         // READ -> PROTECTION_FAULT
+        //         // is_valid == false -> PAGE_FAULT
+        //         faultType = PROTECTION_FAULT;
+        //     break;
+        // }
+        if (process_running->pageTable[i].pageID == pageID)
         {
             if (process_running->pageTable[i].protection == WRITE)
-                isFault = false;
+            {
+                if (process_running->pageTable[i].is_valid == true)
+                {
+                    isFault = false;
+                }
+            }
+            // protection이 READ라면 valid이건 아니건 무조건 protection fault!
             else
-                // protection fault가 아닌 경우는 모두 page fault
-                // READ -> PROTECTION_FAULT
-                // is_valid == false -> PAGE_FAULT
                 faultType = PROTECTION_FAULT;
             break;
         }
@@ -106,7 +120,6 @@ void memory_write(int &cycle, Process *&process_running, deque<Process *> &proce
         physicalMemory};
     print_status(current);
     cycle++;
-
     // page fault or protection fault
     if (isFault)
         fault(cycle, process_running, process_ready, process_waiting, physicalMemory, pageID, faultType, replacement_algo);

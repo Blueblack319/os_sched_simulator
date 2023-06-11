@@ -6,7 +6,7 @@
 #include <string>
 #include <iostream>
 #include <fstream>
-#include "variables.h"
+#include "d_structs.h"
 
 using namespace std;
 
