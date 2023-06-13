@@ -183,10 +183,6 @@ void fault(int &cycle, Process *&process_running, deque<Process *> &process_read
         protectionMapped = mapping(process_running, physicalMemory, pageID);
     }
     // PROTECTION_FAULT
-    /*
-    1. 부모와 자식 모두에서 권한을 W로 바꾸기 => pageTable
-    2. Update physical memory: pid, ref_count
-    */
     else
     {
         protectionMapped = WRITE;
@@ -256,8 +252,8 @@ void fault(int &cycle, Process *&process_running, deque<Process *> &process_read
                     break;
                 }
 
-            // 자식의 권한 변경
-            // 여기서 자식은 가상 메모리에 page는 있지만 물리 메모리에 frame은 없는 상황
+            // 자신의 권한 변경
+            // 여기서 자신은 가상 메모리에 page는 있지만 물리 메모리에 frame은 없는 상황
             for (auto &entry : process_running->pageTable)
                 // pageID는 동일하지만 protection이 WRITE인 경우는 이미 독립적인 page!
                 if (entry.pageID == pageID && entry.protection == READ)
@@ -407,6 +403,7 @@ void system_call_exit(int &cycle, Process *&process_running, deque<Process *> &p
         }
     }
     // 2. 부모 프로세스와 다른 자식 프로세스들의 권한은 모두 W로 바뀜
+    // 자기 자신은 어차피 사라짐 => update할 필요 없음
     // 다른 자식들: readyQ에 무조건 존재
     for (auto &process : process_ready)
         if (process->ppid == 1)
@@ -553,7 +550,6 @@ Process *system_call_fork_and_exec(int &cycle, Process *&process_running, deque<
 
     /*
     1. 부모 프로세스의 pageTableEntry를 R 권한으로 수정
-    TODO: 나중에 자식 프로세스가 exit 한다면? 다시 부모 프로세스의 모든 pageTableEntry의 권한은 W로 변경?
     virtual memory에 할당되어 있는 모든 page를 R 권한으로 수정
     */
     for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
@@ -780,7 +776,7 @@ void system_call_memory_release(int &cycle, Process *&process_running, deque<Pro
                     // 1. 권한 변경
                     // 부모 권한 변경
                     process_running->pageTable[i].protection = WRITE;
-                    // 자식 권한 변경, 자식은 무조건 readyQ에 존재
+                    // 자식들 권한 변경, 자식들은 무조건 readyQ에 존재
                     for (auto &process : process_ready)
                     {
                         // break하면 안돼, 모든 자식들에 대해 적용
@@ -819,15 +815,15 @@ void system_call_memory_release(int &cycle, Process *&process_running, deque<Pro
                 // 자식이 호출한 경우
                 else
                 {
-                    // 1. 권한 변경
-                    // 자식 권한 변경
+                    // 1. 권한 변경: 자기 자신, 부모, 다른 자식들?
+                    // 자신의 권한 변경
                     process_running->pageTable[i].is_valid = false;
                     process_running->pageTable[i].protection = WRITE;
-                    // 부모 권한 변경
-                    // 부모는 readyQ 혹은 waitQ에 존재
+                    // 부모 및 다른 자식들의 권한 변경
+                    // 부모는 readyQ 혹은 waitQ에 존재 & 다른 자식들은 모두 readyQ에 존재
                     for (auto &process : process_ready)
                     {
-                        if (process->pid == 1)
+                        if (process->pid == 1 || process->ppid == 1)
                         {
                             // 해제할 page 찾기 => allocationID, pageID, protection
                             for (int j = 0; j < VIRTUAL_MEM_SIZE; j++)
@@ -838,7 +834,6 @@ void system_call_memory_release(int &cycle, Process *&process_running, deque<Pro
                                     break;
                                 }
                             }
-                            break;
                         }
                     }
                     for (auto &process : process_waiting)
@@ -1113,7 +1108,6 @@ void evict_page(Process *&process_running, deque<Process *> &process_ready, vect
                             }
                 }
             }
-            //
             /*
             W인 경우
             evicted_owner 혼자만 update

@@ -1,0 +1,6 @@
+memory_read 3
+memory_allocate 4
+memory_read 2
+memory_read 5
+memory_write 0
+exit

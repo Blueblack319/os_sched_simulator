@@ -80,33 +80,20 @@ void memory_write(int &cycle, Process *&process_running, deque<Process *> &proce
     bool isFault = true;
     FaultType faultType = PAGE_FAULT;
     for (int i = 0; i < VIRTUAL_MEM_SIZE; i++)
-    {
-        // if (process_running->pageTable[i].pageID == pageID && process_running->pageTable[i].is_valid == true)
-        // {
-        //     if (process_running->pageTable[i].protection == WRITE)
-        //         isFault = false;
-        //     else
-        //         // protection fault가 아닌 경우는 모두 page fault
-        //         // READ -> PROTECTION_FAULT
-        //         // is_valid == false -> PAGE_FAULT
-        //         faultType = PROTECTION_FAULT;
-        //     break;
-        // }
         if (process_running->pageTable[i].pageID == pageID)
         {
             if (process_running->pageTable[i].protection == WRITE)
             {
+
                 if (process_running->pageTable[i].is_valid == true)
-                {
                     isFault = false;
-                }
             }
             // protection이 READ라면 valid이건 아니건 무조건 protection fault!
             else
                 faultType = PROTECTION_FAULT;
             break;
         }
-    }
+
     // (5) 해당 cycle 실행 직후 결과 출력
     Status current = {
         cycle,

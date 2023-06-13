@@ -4,8 +4,7 @@
 // ofstream class를 이용하여 result file에 write
 void print_status(Status status)
 {
-    // TODO: 반드시 TXT 빼기!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    ofstream resultFile("result.txt", ios::app);
+    ofstream resultFile("result", ios::app);
 
     if (resultFile.is_open())
     {
